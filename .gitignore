@@ -1,0 +1,43 @@
+# Maven / Java
+backend/target/
+*.class
+*.jar
+*.war
+*.ear
+*.logs
+.mvn/wrapper/maven-wrapper.jar
+
+# Spring Boot
+backend/src/main/resources/application-prod.yml
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+
+# Vite cache at root (if any)
+.vite/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.suo
+*.user
+
+# Logs
+*.log
+/tmp/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# nohup
+nohup.out

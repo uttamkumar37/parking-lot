@@ -1,0 +1,15 @@
+# Local dev overrides — Kafka disabled (no broker running)
+spring:
+  kafka:
+    listener:
+      auto-startup: false   # don't try to connect to broker on startup
+    producer:
+      retries: 0            # fail fast on publish attempts; events simply won't fire locally
+
+management:
+  health:
+    kafka:
+      enabled: false        # no local broker, suppress health indicator
+  endpoint:
+    health:
+      show-details: always
