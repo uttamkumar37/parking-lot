@@ -22,8 +22,10 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.UUID;
 
@@ -60,8 +62,14 @@ public class PaymentService {
      */
     @Transactional
     public String createCheckoutSession(UUID bookingId) {
+        return createCheckoutSession(bookingId, null, true);
+    }
+
+    @Transactional
+    public String createCheckoutSession(UUID bookingId, UUID requesterId, boolean isAdmin) {
         Booking booking = bookingRepository.findById(bookingId)
             .orElseThrow(() -> new NotFoundException("Booking not found: " + bookingId));
+        verifyBookingAccess(booking, requesterId, isAdmin);
 
         if (booking.getStatus() != BookingStatus.PENDING_PAYMENT) {
             throw new BadRequestException("Booking is not awaiting payment (status: " + booking.getStatus() + ")");
@@ -80,6 +88,10 @@ public class PaymentService {
     }
 
     private String createStripeSession(Booking booking, Bill bill) {
+        if (isMockStripeMode()) {
+            return createMockCheckoutSession(booking, bill);
+        }
+
         try {
             long amountCents = bill.getTotalAmount()
                 .multiply(java.math.BigDecimal.valueOf(100))
@@ -123,6 +135,28 @@ public class PaymentService {
             log.error("Stripe session creation failed for booking {}: {}", booking.getId(), e.getMessage());
             throw new RuntimeException("Payment session creation failed: " + e.getMessage(), e);
         }
+    }
+
+    private boolean isMockStripeMode() {
+        return !StringUtils.hasText(stripeSecretKey)
+            || "sk_test_placeholder".equals(stripeSecretKey);
+    }
+
+    private String createMockCheckoutSession(Booking booking, Bill bill) {
+        String sessionId = "cs_mock_" + booking.getId();
+        String paymentLink = successUrl + "?session_id=" + sessionId;
+
+        Payment payment = Payment.builder()
+            .bill(bill)
+            .amount(bill.getTotalAmount())
+            .stripeSessionId(sessionId)
+            .paymentLink(paymentLink)
+            .status(PaymentStatus.PENDING)
+            .build();
+
+        paymentRepository.save(payment);
+        log.warn("Using mock Stripe checkout session for booking {}", booking.getId());
+        return paymentLink;
     }
 
     /**
@@ -190,7 +224,21 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public Payment getPaymentStatus(UUID bookingId) {
-        return paymentRepository.findByBillBookingId(bookingId)
+        return getPaymentStatus(bookingId, null, true);
+    }
+
+    @Transactional(readOnly = true)
+    public Payment getPaymentStatus(UUID bookingId, UUID requesterId, boolean isAdmin) {
+        Payment payment = paymentRepository.findByBillBookingId(bookingId)
             .orElseThrow(() -> new NotFoundException("No payment found for booking: " + bookingId));
+        verifyBookingAccess(payment.getBill().getBooking(), requesterId, isAdmin);
+        return payment;
+    }
+
+    private void verifyBookingAccess(Booking booking, UUID requesterId, boolean isAdmin) {
+        if (isAdmin) return;
+        if (booking.getUser() == null || !booking.getUser().getId().equals(requesterId)) {
+            throw new AccessDeniedException("Booking does not belong to this user");
+        }
     }
 }

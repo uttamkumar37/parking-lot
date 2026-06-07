@@ -2,6 +2,7 @@ package com.parksmart.controller;
 
 import com.parksmart.dto.response.ApiResponse;
 import com.parksmart.dto.response.SlotAvailabilityResponse;
+import com.parksmart.dto.response.SlotMapResponse;
 import com.parksmart.entity.ParkingLot;
 import com.parksmart.service.ParkingLotService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,6 +37,16 @@ public class ParkingLotController {
     ) {
         return ResponseEntity.ok(
             ApiResponse.success("Availability retrieved", parkingLotService.getAvailability(lotId))
+        );
+    }
+
+    @GetMapping("/lots/{lotId}/slot-map")
+    @Operation(summary = "Slot-level floor map for visual parking selection")
+    public ResponseEntity<ApiResponse<SlotMapResponse>> getSlotMap(
+        @PathVariable UUID lotId
+    ) {
+        return ResponseEntity.ok(
+            ApiResponse.success("Slot map retrieved", parkingLotService.getSlotMap(lotId))
         );
     }
 }

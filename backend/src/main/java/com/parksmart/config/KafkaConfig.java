@@ -1,6 +1,7 @@
 package com.parksmart.config;
 
 import com.parksmart.event.BookingEvent;
+import com.parksmart.event.BookingEventPublisher;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -28,7 +29,7 @@ public class KafkaConfig {
 
     @Bean
     public NewTopic bookingTopic() {
-        return TopicBuilder.name("booking-events")
+        return TopicBuilder.name(BookingEventPublisher.BOOKING_TOPIC)
             .partitions(3)
             .replicas(1)
             .build();

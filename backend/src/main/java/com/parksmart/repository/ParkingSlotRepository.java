@@ -55,6 +55,21 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, UUID> 
     @Query("UPDATE ParkingSlot s SET s.status = :status WHERE s.id = :id")
     int updateStatus(@Param("id") UUID id, @Param("status") SlotStatus status);
 
+    /**
+     * Atomically update slot status only when the slot is still in the expected state.
+     */
+    @Modifying
+    @Query("""
+        UPDATE ParkingSlot s
+        SET s.status = :newStatus
+        WHERE s.id = :id AND s.status = :expectedStatus
+        """)
+    int updateStatusIfCurrent(
+        @Param("id") UUID id,
+        @Param("expectedStatus") SlotStatus expectedStatus,
+        @Param("newStatus") SlotStatus newStatus
+    );
+
     List<ParkingSlot> findByFloorId(UUID floorId);
 
     List<ParkingSlot> findByFloorIdAndStatus(UUID floorId, SlotStatus status);

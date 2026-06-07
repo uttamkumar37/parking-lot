@@ -2,6 +2,7 @@ package com.parksmart.config;
 
 import com.parksmart.repository.UserRepository;
 import com.parksmart.security.JwtAuthenticationFilter;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
@@ -43,7 +44,6 @@ public class SecurityConfig {
     private static final String[] PUBLIC_ENDPOINTS = {
         "/auth/register",
         "/auth/login",
-        "/auth/refresh",
         "/payments/webhook",         // Stripe webhooks must be public
         "/swagger-ui/**",
         "/api-docs/**",
@@ -55,10 +55,18 @@ public class SecurityConfig {
         http
             .csrf(AbstractHttpConfigurer::disable)
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint((request, response, authException) ->
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized")
+                )
+                .accessDeniedHandler((request, response, accessDeniedException) ->
+                    response.sendError(HttpServletResponse.SC_FORBIDDEN, "Forbidden")
+                )
+            )
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
-                .requestMatchers(HttpMethod.GET, "/parking/lots", "/parking/lots/*/availability")
+                .requestMatchers(HttpMethod.GET, "/parking/lots", "/parking/lots/*/availability", "/parking/lots/*/slot-map")
                     .permitAll()
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()

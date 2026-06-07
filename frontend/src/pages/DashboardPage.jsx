@@ -82,7 +82,7 @@ export default function DashboardPage() {
               onClick={() => navigate('/park', { state: { lotId: selectedLot.id, lotName: selectedLot.name } })}
             >
               <TruckIcon className="h-4 w-4 mr-2" />
-              Park Here
+              Choose Parking Slot
             </button>
           </div>
 

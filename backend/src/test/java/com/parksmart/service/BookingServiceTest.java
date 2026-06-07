@@ -25,8 +25,13 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -115,7 +120,8 @@ class BookingServiceTest {
             .thenReturn(new SlotType[]{SlotType.MEDIUM});
         when(slotRepository.findFirstAvailableSlot(lotId, SlotType.MEDIUM))
             .thenReturn(Optional.of(slot));
-        when(slotRepository.updateStatus(slot.getId(), SlotStatus.OCCUPIED)).thenReturn(1);
+        when(slotRepository.updateStatusIfCurrent(slot.getId(), SlotStatus.AVAILABLE, SlotStatus.OCCUPIED))
+            .thenReturn(1);
         when(bookingRepository.save(any())).thenReturn(savedBooking);
         doNothing().when(eventPublisher).publish(any());
 
@@ -123,7 +129,68 @@ class BookingServiceTest {
 
         assertThat(response.getStatus()).isEqualTo(BookingStatus.ACTIVE);
         assertThat(response.getLicensePlate()).isEqualTo("XYZ999");
-        verify(slotRepository).updateStatus(slot.getId(), SlotStatus.OCCUPIED);
+        verify(slotRepository).updateStatusIfCurrent(slot.getId(), SlotStatus.AVAILABLE, SlotStatus.OCCUPIED);
+    }
+
+    @Test
+    void parkVehicle_withSelectedSlot_usesRequestedSlot() {
+        ParkVehicleRequest req = new ParkVehicleRequest();
+        req.setLotId(lotId);
+        req.setSlotId(slot.getId());
+        req.setLicensePlate("SEL001");
+        req.setVehicleType(VehicleType.CAR);
+
+        Vehicle newVehicle = Vehicle.builder()
+            .id(UUID.randomUUID()).licensePlate("SEL001").vehicleType(VehicleType.CAR)
+            .build();
+        Booking savedBooking = Booking.builder()
+            .id(UUID.randomUUID()).user(User.builder().id(userId).build())
+            .vehicle(newVehicle).slot(slot)
+            .entryTime(LocalDateTime.now()).status(BookingStatus.ACTIVE)
+            .build();
+
+        when(lotRepository.findById(lotId)).thenReturn(Optional.of(parkingLot));
+        when(vehicleRepository.findByLicensePlate("SEL001")).thenReturn(Optional.empty());
+        when(vehicleRepository.save(any())).thenReturn(newVehicle);
+        when(bookingRepository.existsByVehicleIdAndStatus(any(), eq(BookingStatus.ACTIVE)))
+            .thenReturn(false);
+        when(slotRepository.findById(slot.getId())).thenReturn(Optional.of(slot));
+        when(vehicleSlotFactory.getFallbackSlotTypes(VehicleType.CAR))
+            .thenReturn(new SlotType[]{SlotType.MEDIUM, SlotType.LARGE});
+        when(slotRepository.updateStatusIfCurrent(slot.getId(), SlotStatus.AVAILABLE, SlotStatus.OCCUPIED))
+            .thenReturn(1);
+        when(bookingRepository.save(any())).thenReturn(savedBooking);
+        doNothing().when(eventPublisher).publish(any());
+
+        BookingResponse response = bookingService.parkVehicle(userId, req);
+
+        assertThat(response.getSlotNumber()).isEqualTo("M-01");
+        verify(slotRepository, never()).findFirstAvailableSlot(any(), any());
+        verify(slotRepository).updateStatusIfCurrent(slot.getId(), SlotStatus.AVAILABLE, SlotStatus.OCCUPIED);
+    }
+
+    @Test
+    void parkVehicle_withIncompatibleSelectedSlot_throwsBadRequest() {
+        ParkVehicleRequest req = new ParkVehicleRequest();
+        req.setLotId(lotId);
+        req.setSlotId(slot.getId());
+        req.setLicensePlate("BUS001");
+        req.setVehicleType(VehicleType.BUS);
+
+        when(lotRepository.findById(lotId)).thenReturn(Optional.of(parkingLot));
+        when(vehicleRepository.findByLicensePlate("BUS001")).thenReturn(Optional.empty());
+        when(vehicleRepository.save(any())).thenReturn(vehicle);
+        when(bookingRepository.existsByVehicleIdAndStatus(any(), eq(BookingStatus.ACTIVE)))
+            .thenReturn(false);
+        when(slotRepository.findById(slot.getId())).thenReturn(Optional.of(slot));
+        when(vehicleSlotFactory.getFallbackSlotTypes(VehicleType.BUS))
+            .thenReturn(new SlotType[]{SlotType.OVERSIZED});
+
+        assertThatThrownBy(() -> bookingService.parkVehicle(userId, req))
+            .isInstanceOf(BadRequestException.class)
+            .hasMessageContaining("not compatible");
+
+        verify(slotRepository, never()).updateStatusIfCurrent(any(), any(), any());
     }
 
     @Test
@@ -175,6 +242,84 @@ class BookingServiceTest {
 
         assertThatThrownBy(() -> bookingService.parkVehicle(userId, req))
             .isInstanceOf(SlotNotAvailableException.class);
+    }
+
+    @Test
+    void parkVehicle_whenTwoUsersRaceForSameSlot_onlyOneSucceeds() throws Exception {
+        ParkVehicleRequest req1 = new ParkVehicleRequest();
+        req1.setLotId(lotId);
+        req1.setLicensePlate("CAR001");
+        req1.setVehicleType(VehicleType.CAR);
+
+        ParkVehicleRequest req2 = new ParkVehicleRequest();
+        req2.setLotId(lotId);
+        req2.setLicensePlate("CAR002");
+        req2.setVehicleType(VehicleType.CAR);
+
+        Vehicle vehicle1 = Vehicle.builder()
+            .id(UUID.randomUUID()).licensePlate("CAR001").vehicleType(VehicleType.CAR)
+            .build();
+        Vehicle vehicle2 = Vehicle.builder()
+            .id(UUID.randomUUID()).licensePlate("CAR002").vehicleType(VehicleType.CAR)
+            .build();
+
+        when(lotRepository.findById(lotId)).thenReturn(Optional.of(parkingLot));
+        when(vehicleRepository.findByLicensePlate("CAR001")).thenReturn(Optional.empty());
+        when(vehicleRepository.findByLicensePlate("CAR002")).thenReturn(Optional.empty());
+        when(vehicleRepository.save(any(Vehicle.class))).thenAnswer(invocation -> {
+            Vehicle vehicleToSave = invocation.getArgument(0);
+            return "CAR001".equals(vehicleToSave.getLicensePlate()) ? vehicle1 : vehicle2;
+        });
+        when(bookingRepository.existsByVehicleIdAndStatus(any(), eq(BookingStatus.ACTIVE)))
+            .thenReturn(false);
+        when(vehicleSlotFactory.getFallbackSlotTypes(VehicleType.CAR))
+            .thenReturn(new SlotType[]{SlotType.MEDIUM});
+        when(slotRepository.findFirstAvailableSlot(lotId, SlotType.MEDIUM))
+            .thenReturn(Optional.of(slot));
+
+        AtomicInteger successfulOccupations = new AtomicInteger();
+        when(slotRepository.updateStatusIfCurrent(slot.getId(), SlotStatus.AVAILABLE, SlotStatus.OCCUPIED))
+            .thenAnswer(invocation -> successfulOccupations.compareAndSet(0, 1) ? 1 : 0);
+        when(bookingRepository.save(any())).thenAnswer(invocation -> {
+            Booking booking = invocation.getArgument(0);
+            booking.setId(UUID.randomUUID());
+            return booking;
+        });
+        doNothing().when(eventPublisher).publish(any());
+
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Callable<Object>> attempts = List.of(
+                () -> bookingService.parkVehicle(userId, req1),
+                () -> bookingService.parkVehicle(UUID.randomUUID(), req2)
+            );
+
+            var results = executor.invokeAll(attempts);
+
+            long successes = results.stream().filter(future -> {
+                try {
+                    future.get();
+                    return true;
+                } catch (Exception ignored) {
+                    return false;
+                }
+            }).count();
+            long failures = results.stream().filter(future -> {
+                try {
+                    future.get();
+                    return false;
+                } catch (Exception ex) {
+                    return ex.getCause() instanceof SlotNotAvailableException;
+                }
+            }).count();
+
+            assertThat(successes).isEqualTo(1);
+            assertThat(failures).isEqualTo(1);
+            verify(bookingRepository, times(1)).save(any(Booking.class));
+        } finally {
+            executor.shutdown();
+            assertThat(executor.awaitTermination(1, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     // ── exitVehicle ───────────────────────────────────────────────────────────
@@ -236,5 +381,15 @@ class BookingServiceTest {
 
         assertThatThrownBy(() -> bookingService.exitVehicle(unknownId, userId))
             .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void getBooking_withDifferentUser_throwsAccessDenied() {
+        when(bookingRepository.findById(activeBooking.getId()))
+            .thenReturn(Optional.of(activeBooking));
+
+        assertThatThrownBy(() ->
+            bookingService.getBooking(activeBooking.getId(), UUID.randomUUID(), false)
+        ).isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
     }
 }

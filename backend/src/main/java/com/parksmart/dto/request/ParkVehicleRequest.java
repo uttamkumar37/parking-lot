@@ -6,6 +6,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
+import java.util.UUID;
+
 @Data
 public class ParkVehicleRequest {
 
@@ -21,5 +23,7 @@ public class ParkVehicleRequest {
     private String color;
 
     @NotNull(message = "Lot ID is required")
-    private java.util.UUID lotId;
+    private UUID lotId;
+
+    private UUID slotId;
 }

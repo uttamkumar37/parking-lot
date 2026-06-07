@@ -6,6 +6,8 @@ COPY package*.json ./
 RUN npm ci --prefer-offline
 
 COPY . .
+ARG VITE_API_URL=/api/v1
+ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
 # ── Stage 2: Nginx serving ────────────────────────────────────────────────────
@@ -17,4 +19,4 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=5s \
-  CMD wget -qO- http://localhost/ || exit 1
+  CMD wget -qO- http://127.0.0.1/nginx-health || exit 1

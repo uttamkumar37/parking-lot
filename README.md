@@ -1,342 +1,374 @@
-# 🚗 ParkSmart — Production-Ready Parking Lot Management System
+# ParkSmart - Parking Lot Management System
 
-[![Java](https://img.shields.io/badge/Java-21_LTS-orange.svg)](https://openjdk.java.net/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2-green.svg)](https://spring.io/projects/spring-boot)
-[![React](https://img.shields.io/badge/React-18-blue.svg)](https://reactjs.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue.svg)](https://www.postgresql.org/)
-[![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg)](https://docs.docker.com/compose/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+ParkSmart is a full-stack parking lot management application with a Spring Boot backend and React frontend. The current implementation supports user authentication, parking lot discovery, live slot availability, cinema-style visual slot selection, vehicle parking and exit flow, billing, Stripe checkout session creation, admin metrics, Redis caching, Kafka-backed booking events, and email/SMS notification hooks.
 
----
+## Current Stack
 
-## 📌 Resume-Ready Description
+| Layer | Technology |
+| --- | --- |
+| Backend | Java 21, Spring Boot 3.2, Maven |
+| API/security | Spring Web, Spring Security, JWT |
+| Persistence | Spring Data JPA, PostgreSQL, Flyway |
+| Cache/events | Redis cache, Kafka |
+| Payments/notifications | Stripe, Spring Mail, Twilio |
+| Frontend | React 18, Vite, Tailwind CSS, Zustand, Axios, React Router |
+| Infra | Docker Compose, Nginx frontend container, GitHub Actions |
 
-> **ParkSmart** is a cloud-native, microservice-ready Parking Lot Management System built with a **Java 21 (LTS) + Spring Boot 3** backend and **React 18 + Tailwind CSS** frontend. It supports multi-floor parking lots, dynamic pricing strategies, JWT-based authentication, real-time slot availability, Stripe payment integration, email/SMS notifications, Redis caching, Kafka async event processing, and full CI/CD deployment on AWS via GitHub Actions. Designed using SOLID principles, Gang-of-Four design patterns (Strategy, Factory, Observer, Builder, Singleton), and tested with JUnit 5 + Mockito.
+## Implemented Features
 
----
+- Register and login with JWT access tokens.
+- Role-based authorization for admin APIs.
+- Public parking lot listing, slot availability, and slot-level floor maps.
+- Redis-cached slot availability with cache eviction on park/exit.
+- Vehicle parking with visual selected-slot booking and fallback slot allocation when no slot is selected.
+- Premium React parking picker with lot cards, floor tabs/dropdown, slot-type filters, drive-lane map layout, slot legend, detail panel, and confirmation modal.
+- Active booking prevention for already parked vehicles.
+- Exit flow that frees the slot, calculates duration, creates a bill, and marks the booking pending payment.
+- Pricing strategies: hourly, dynamic surge, and weekend premium.
+- Stripe checkout session creation at `/api/v1/payments/{bookingId}/checkout`.
+- Local/dev mock checkout links when `STRIPE_SECRET_KEY` is blank or `sk_test_placeholder`.
+- Stripe webhook handling for completed and expired checkout sessions.
+- Kafka booking events on topic `parking.booking.events`.
+- Email/SMS notification hooks for booking, bill, and payment events.
+- Admin dashboard, booking listing, revenue summary, lot creation/toggle, and user listing APIs.
+- React pages for login, registration, dashboard, cinema-style parking slot selection, booking list/detail, payment success, and admin dashboard.
+- Docker Compose services for PostgreSQL, Redis, Kafka/Zookeeper, backend, and frontend.
+- Backend unit/controller tests for auth, booking, payment, parking lot slot maps, Kafka config, security ownership, booking/payment flow, and event serialization.
 
-## 🏗️ Architecture Overview
+## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          CLIENT TIER                                     │
-│  React 18 + Redux Toolkit + Tailwind CSS + Axios                        │
-│  Pages: Login | Dashboard | Park Vehicle | Bookings | Payment            │
-└─────────────────────────┬───────────────────────────────────────────────┘
-                          │ HTTPS (Nginx Reverse Proxy)
-┌─────────────────────────▼───────────────────────────────────────────────┐
-│                       API GATEWAY / NGINX                                │
-│  Rate Limiting | SSL Termination | Load Balancing                        │
-└─────────────────────────┬───────────────────────────────────────────────┘
-                          │ REST / JSON
-┌─────────────────────────▼───────────────────────────────────────────────┐
-│                    SPRING BOOT 3 APPLICATION                             │
-│  ┌───────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-│  │Controllers│  │ Services │  │   Repos  │  │ Security │              │
-│  └───────────┘  └──────────┘  └──────────┘  └──────────┘              │
-│  Design Patterns: Strategy | Factory | Observer | Builder | Singleton   │
-└──────┬──────────────────┬──────────────────┬────────────────────────────┘
-       │                  │                  │
-┌──────▼──────┐  ┌────────▼────┐  ┌─────────▼──────┐
-│ PostgreSQL  │  │    Redis    │  │     Kafka       │
-│ (Primary DB)│  │  (Cache)    │  │ (Event Queue)   │
-└─────────────┘  └─────────────┘  └────────────────┘
-                          │
-          ┌───────────────┼───────────────┐
-   ┌──────▼──────┐ ┌──────▼──────┐ ┌─────▼─────┐
-   │   Stripe    │ │ SendGrid    │ │  Twilio   │
-   │  Payments   │ │   Email     │ │    SMS    │
-   └─────────────┘ └─────────────┘ └───────────┘
-```
-
----
-
-## 📐 High Level Design (HLD)
-
-### Core Services
-| Service | Responsibility |
-|---------|---------------|
-| **Auth Service** | JWT auth, user registration, role management |
-| **Parking Service** | Slot allocation, availability checks, floor management |
-| **Booking Service** | Booking lifecycle: park → active → exit → billed |
-| **Pricing Service** | Hourly/dynamic/weekend pricing strategies |
-| **Payment Service** | Stripe integration, payment link generation |
-| **Notification Service** | Email via SendGrid, SMS via Twilio |
-| **Cache Service** | Redis-backed slot availability, rate limiting |
-
-### Key Design Decisions
-- **Strategy Pattern** for pluggable pricing (Hourly, Dynamic, Weekend, Premium)
-- **Factory Pattern** for vehicle type resolution and pricing strategy selection
-- **Observer/Events** for decoupled notifications on booking state changes
-- **Repository Pattern** via Spring Data JPA for data access abstraction
-- **Builder Pattern** for complex DTO construction
-- **CQRS-lite** — separate read (cached) and write paths for slot availability
-
----
-
-## 📊 Database Schema
-
-```sql
--- Users
-users (id, name, email, password_hash, phone, role, created_at)
-
--- Parking infrastructure
-parking_lots (id, name, address, total_floors, created_at)
-parking_floors (id, lot_id, floor_number, total_slots)
-parking_slots (id, floor_id, slot_number, slot_type, status, created_at)
-
--- Vehicles
-vehicles (id, user_id, license_plate, vehicle_type, brand, model)
-
--- Bookings
-bookings (id, user_id, vehicle_id, slot_id, entry_time, exit_time,
-          duration_minutes, status, created_at)
-
--- Billing & Payments
-bills (id, booking_id, base_amount, tax_amount, total_amount,
-       pricing_strategy, created_at)
-payments (id, bill_id, amount, currency, status, stripe_session_id,
-          stripe_payment_intent, payment_link, paid_at)
+```text
+Browser
+  |
+  | HTTP
+  v
+React + Vite frontend
+  |
+  | /api/v1 REST requests
+  v
+Spring Boot backend
+  |-- Controllers
+  |-- Services
+  |-- Repositories
+  |-- Security/JWT filter
+  |
+  |-- PostgreSQL via JPA/Flyway
+  |-- Redis for cache
+  |-- Kafka for booking events
+  |-- Stripe for checkout
+  |-- Mail/Twilio for notifications
 ```
 
----
+## API Reference
 
-## 🔐 API Reference
+All backend endpoints are served under `/api/v1`.
 
 ### Authentication
-```
-POST /api/v1/auth/register     — Register new user
-POST /api/v1/auth/login        — Login & receive JWT
-POST /api/v1/auth/refresh      — Refresh JWT token
+
+```text
+POST /api/v1/auth/register
+POST /api/v1/auth/login
 ```
 
-### Parking Management
+### Parking Lots
+
+```text
+GET /api/v1/parking/lots
+GET /api/v1/parking/lots/{lotId}/availability
+GET /api/v1/parking/lots/{lotId}/slot-map
 ```
-GET  /api/v1/parking/lots               — List all lots
-GET  /api/v1/parking/lots/{id}/availability — Real-time slot availability
-POST /api/v1/parking/lots               — Create lot (ADMIN)
-POST /api/v1/parking/lots/{id}/floors   — Add floor (ADMIN)
-POST /api/v1/parking/slots              — Add slots (ADMIN)
+
+`/slot-map` returns floor, section, and slot-level availability for the visual picker. Sections are derived from slot order when the database has no explicit section table.
+
+Example shape:
+
+```json
+{
+  "lotId": "uuid",
+  "lotName": "ParkSmart Downtown",
+  "address": "123 Main Street",
+  "city": "San Francisco",
+  "totalFloors": 3,
+  "active": true,
+  "floors": [
+    {
+      "floorId": "uuid",
+      "floorNumber": 1,
+      "floorName": "Ground Floor",
+      "totalSlots": 31,
+      "availableSlots": 30,
+      "occupiedSlots": 1,
+      "reservedSlots": 0,
+      "disabledSlots": 0,
+      "sections": [
+        {
+          "sectionName": "A",
+          "slots": [
+            {
+              "id": "uuid",
+              "code": "A01",
+              "slotNumber": "G-S01",
+              "type": "SMALL",
+              "status": "AVAILABLE",
+              "evSupported": false,
+              "handicapAccessible": false,
+              "hourlyRate": 2.00
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ### Bookings
+
+```text
+POST /api/v1/bookings/park
+POST /api/v1/bookings/{bookingId}/exit
+GET  /api/v1/bookings/my
+GET  /api/v1/bookings/{bookingId}
 ```
-POST /api/v1/bookings/park     — Park vehicle (creates booking)
-POST /api/v1/bookings/{id}/exit — Exit and generate bill
-GET  /api/v1/bookings/active   — Active bookings for user
-GET  /api/v1/bookings/history  — Booking history for user
-GET  /api/v1/bookings/{id}     — Get booking details
+
+`POST /api/v1/bookings/park` accepts an optional `slotId`. When provided, the backend validates that the selected slot belongs to the lot, is compatible with the vehicle type, and is still available before atomically occupying it. When omitted, the existing automatic allocation/fallback path is used.
+
+```json
+{
+  "lotId": "uuid",
+  "slotId": "uuid",
+  "licensePlate": "ABC123",
+  "vehicleType": "CAR",
+  "brand": "Toyota",
+  "model": "Camry",
+  "color": "White"
+}
 ```
 
 ### Payments
+
+```text
+POST /api/v1/payments/{bookingId}/checkout
+GET  /api/v1/payments/{bookingId}/status
+POST /api/v1/payments/webhook
 ```
-POST /api/v1/payments/{bookingId}/create-session — Create Stripe checkout
-GET  /api/v1/payments/{bookingId}/status         — Payment status
-POST /api/v1/payments/webhook                    — Stripe webhook handler
+
+### Vehicles
+
+```text
+GET /api/v1/vehicles
 ```
 
 ### Admin
-```
-GET  /api/v1/admin/dashboard           — System stats
-GET  /api/v1/admin/bookings            — All bookings (paginated)
-PUT  /api/v1/admin/slots/{id}/status   — Update slot status
+
+```text
+GET   /api/v1/admin/dashboard
+GET   /api/v1/admin/bookings
+GET   /api/v1/admin/revenue?from=YYYY-MM-DD&to=YYYY-MM-DD
+POST  /api/v1/admin/lots
+PATCH /api/v1/admin/lots/{lotId}/toggle
+GET   /api/v1/admin/users
 ```
 
----
+## Database
 
-## 🚀 Quick Start
+Flyway migrations create these main tables:
+
+```text
+users
+vehicles
+parking_lots
+parking_floors
+parking_slots
+bookings
+bills
+payments
+```
+
+The seed data creates:
+
+- Default admin user: `admin@parksmart.com` / `Admin@123`
+- Sample lot: `ParkSmart Downtown`
+- Three floors with small, medium, large, EV, and oversized slots
+
+## Parking Slot Selection UX
+
+The `/park` page provides the main slot selection experience:
+
+- Step 1: choose a parking lot from cards showing name, address, city, floor count, open status, and available slots.
+- Step 2: choose a floor with desktop tabs or a mobile dropdown.
+- Step 3: filter the map by slot type: small, medium, large, oversized, or EV.
+- Step 4: pick an available rectangle from the cinema-style slot map. Occupied, reserved, and maintenance slots are disabled.
+- Step 5: review the selected slot in a desktop side panel or mobile bottom sheet.
+- Step 6: confirm license plate and vehicle details in a modal.
+- Step 7: the frontend calls `POST /api/v1/bookings/park` with the selected `slotId` and navigates to the booking detail page on success.
+
+The dashboard still keeps the high-level summary cards and adds a `Choose Parking Slot` entry point into the visual picker.
+
+## Local Development
 
 ### Prerequisites
-- Java 17+, Maven 3.9+
-- Node.js 18+, npm 9+
-- Docker & Docker Compose
-- PostgreSQL 15+ (or use Docker)
-- Redis 7+ (or use Docker)
 
-### 1. Clone & Configure
+- Java 21
+- Maven 3.9 or the included Maven wrapper
+- Node.js 18+
+- Docker and Docker Compose
 
-```bash
-git clone https://github.com/your-username/parksmart.git
-cd parksmart
-
-# Copy and edit environment variables
-cp backend/src/main/resources/application-example.yml \
-   backend/src/main/resources/application-local.yml
-```
-
-### 2. Start with Docker Compose (Recommended)
-
-```bash
-docker-compose up -d
-# Backend at http://localhost:8080
-# Frontend at http://localhost:3000
-# PgAdmin at http://localhost:5050
-# Kafka UI at http://localhost:8090
-```
-
-### 3. Manual Backend Start
+### Backend
 
 ```bash
 cd backend
-mvn clean install -DskipTests
-mvn spring-boot:run -Dspring-boot.run.profiles=local
+./mvnw test
+./mvnw spring-boot:run
 ```
 
-### 4. Manual Frontend Start
+The backend runs on `http://localhost:8080/api/v1` by default.
+
+### Frontend
 
 ```bash
 cd frontend
-npm install
-npm start
+npm ci
+npm run dev
 ```
 
----
+The frontend dev server runs on `http://127.0.0.1:3000` and proxies `/api` to the local backend.
 
-## 🧪 Testing
+Set `VITE_API_URL` if you need a different API base URL:
 
 ```bash
-# Backend unit + integration tests
+VITE_API_URL=http://localhost:8080/api/v1 npm run dev
+```
+
+### Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Default service URLs:
+
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:8080/api/v1`
+- Backend health: `http://localhost:8080/api/v1/actuator/health`
+
+Inside Docker, the frontend Nginx container proxies `/api` to the backend service.
+
+If a default host port is already in use, override it:
+
+```bash
+BACKEND_PORT=18080 FRONTEND_PORT=13000 docker compose up -d
+```
+
+## Tests and Builds
+
+```bash
 cd backend
-mvn test
-
-# Coverage report (generated at target/site/jacoco/)
-mvn verify jacoco:report
-
-# Frontend tests
-cd frontend
-npm test
+./mvnw test
 ```
-
----
-
-## 🐳 Docker
 
 ```bash
-# Build images
-docker build -t parksmart-backend ./backend
-docker build -t parksmart-frontend ./frontend
-
-# Full stack
-docker-compose up --build
+cd frontend
+npm ci
+npm run build
 ```
 
----
+GitHub Actions workflow:
 
-## ☁️ AWS Deployment
-
-See [infra/aws/README.md](infra/aws/README.md) for full instructions.
-
-**Architecture:**
-- **EC2** (t3.small) — Spring Boot backend
-- **RDS** (PostgreSQL) — Primary database
-- **ElastiCache** (Redis) — Caching layer
-- **S3** — Static frontend + file storage
-- **CloudFront** — CDN for frontend
-- **ALB** — Application Load Balancer
-- **MSK** — Managed Kafka
-
----
-
-## 🔧 Environment Variables
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `DB_URL` | PostgreSQL JDBC URL | `jdbc:postgresql://localhost:5432/parksmart` |
-| `DB_USERNAME` | DB username | `parking_user` |
-| `DB_PASSWORD` | DB password | `changeme` |
-| `JWT_SECRET` | 256-bit JWT signing secret | `your-secret-key-min-32-chars` |
-| `JWT_EXPIRY` | Token expiry in ms | `86400000` |
-| `STRIPE_SECRET_KEY` | Stripe API secret | `sk_live_...` |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | `whsec_...` |
-| `SENDGRID_API_KEY` | SendGrid API key | `SG.xxx` |
-| `TWILIO_ACCOUNT_SID` | Twilio Account SID | `ACxxx` |
-| `TWILIO_AUTH_TOKEN` | Twilio Auth Token | `xxx` |
-| `REDIS_HOST` | Redis hostname | `localhost` |
-| `KAFKA_BOOTSTRAP` | Kafka broker address | `localhost:9092` |
-
----
-
-## 📁 Project Structure
-
+```text
+.github/workflows/ci-cd.yml
 ```
+
+## Project Structure
+
+```text
 parking-lot/
-├── backend/                        # Spring Boot 3 application
-│   ├── src/main/java/com/parksmart/
-│   │   ├── config/                 # Spring, Security, Kafka, Redis configs
-│   │   ├── controller/             # REST controllers
-│   │   ├── service/                # Business logic
-│   │   ├── repository/             # JPA repositories
-│   │   ├── entity/                 # JPA entities
-│   │   ├── dto/                    # Request/Response DTOs
-│   │   ├── exception/              # Custom exceptions + global handler
-│   │   ├── security/               # JWT filter, UserDetailsService
-│   │   ├── strategy/               # Pricing strategies
-│   │   ├── factory/                # Vehicle & Pricing factories
-│   │   ├── event/                  # Kafka events & listeners
-│   │   └── util/                   # Helpers
-│   ├── src/test/                   # Unit + integration tests
+├── .github/workflows/ci-cd.yml
+├── backend/
+│   ├── .mvn/wrapper/
+│   ├── mvnw
+│   ├── mvnw.cmd
 │   ├── pom.xml
-│   └── Dockerfile
-├── frontend/                       # React 18 application
-│   ├── src/
-│   │   ├── components/             # Reusable UI components
-│   │   ├── pages/                  # Route-level pages
-│   │   ├── store/                  # Redux Toolkit slices
-│   │   ├── services/               # Axios API services
-│   │   └── hooks/                  # Custom React hooks
+│   └── src/
+│       ├── main/java/com/parksmart/
+│       │   ├── config/
+│       │   ├── controller/
+│       │   ├── dto/
+│       │   ├── entity/
+│       │   ├── event/
+│       │   ├── exception/
+│       │   ├── factory/
+│       │   ├── repository/
+│       │   ├── security/
+│       │   ├── service/
+│       │   └── strategy/
+│       └── test/java/com/parksmart/
+├── frontend/
 │   ├── package.json
-│   ├── tailwind.config.js
-│   └── Dockerfile
-├── infra/
-│   ├── aws/                        # AWS CloudFormation / setup scripts
-│   ├── nginx/                      # Nginx config
-│   └── k8s/                        # Kubernetes manifests (optional)
-├── docker/
-│   └── docker-compose.yml
-├── .github/
-│   └── workflows/
-│       └── ci-cd.yml               # GitHub Actions pipeline
+│   ├── nginx.conf
+│   ├── vite.config.js
+│   └── src/
+│       ├── api/
+│       ├── components/
+│       │   └── parking/
+│       ├── pages/
+│       └── store/
+├── docker-compose.yml
 └── README.md
 ```
 
----
+## Design Patterns Used
 
-## 🧩 Design Patterns Used
+| Pattern | Where |
+| --- | --- |
+| Strategy | `PricingStrategy`, `HourlyPricingStrategy`, `DynamicPricingStrategy`, `WeekendPricingStrategy` |
+| Factory | `PricingStrategyFactory`, `VehicleSlotFactory` |
+| Observer/event | `BookingEvent`, Kafka publisher/listener |
+| Builder | Lombok builders and `BookingEvent.Builder` |
+| Repository | Spring Data JPA repositories |
 
-| Pattern | Where | Why |
-|---------|-------|-----|
-| **Strategy** | `PricingStrategy` implementations | Swap pricing algorithms at runtime |
-| **Factory** | `PricingStrategyFactory`, `VehicleFactory` | Decouple object creation |
-| **Observer/Events** | `BookingEvent`, Kafka listeners | Decoupled notifications |
-| **Builder** | DTOs, `BookingResponse` | Readable complex object construction |
-| **Singleton** | Spring beans (default) | Single instance per context |
-| **Repository** | Spring Data JPA | Data access abstraction |
-| **Chain of Responsibility** | Slot allocation algorithm | Try slot types in priority order |
-| **Decorator** | Logging/Caching wrappers | Add cross-cutting concerns |
-| **Template Method** | `AbstractNotificationService` | Shared notification skeleton |
+## Configuration
 
----
+Common environment variables:
 
-## 📈 Scalability Considerations
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `DB_URL` | PostgreSQL JDBC URL | `jdbc:postgresql://localhost:5432/parksmart` |
+| `DB_USERNAME` | Database user | `parking_user` |
+| `DB_PASSWORD` | Database password | `changeme` |
+| `JWT_SECRET` | JWT signing secret | development fallback in `application.yml` |
+| `JWT_EXPIRY` | Access token expiry in ms | `86400000` |
+| `REDIS_HOST` | Redis host | `localhost` |
+| `REDIS_PORT` | Redis port | `6379` |
+| `KAFKA_BOOTSTRAP` | Kafka bootstrap servers | `localhost:9092` |
+| `STRIPE_SECRET_KEY` | Stripe secret key | `sk_test_placeholder` |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook secret | `whsec_placeholder` |
+| `STRIPE_SUCCESS_URL` | Stripe success redirect | `http://localhost:3000/payment/success` |
+| `STRIPE_CANCEL_URL` | Stripe cancel redirect | `http://localhost:3000/payment/cancel` |
+| `MAIL_HOST` | SMTP host | `smtp.sendgrid.net` |
+| `MAIL_USERNAME` | SMTP username | `apikey` |
+| `MAIL_PASSWORD` | SMTP password | empty |
+| `TWILIO_ACCOUNT_SID` | Twilio account SID | empty |
+| `TWILIO_AUTH_TOKEN` | Twilio auth token | empty |
+| `TWILIO_FROM_NUMBER` | Twilio sender number | empty |
+| `VITE_API_URL` | Frontend API base URL | `/api/v1` |
+| `BACKEND_PORT` | Docker Compose backend host port | `8080` |
+| `FRONTEND_PORT` | Docker Compose frontend host port | `3000` |
 
-- **Redis Cache**: Slot availability cached with 30s TTL; cache invalidated on booking events
-- **Kafka**: Booking events published async; notification/email consumers scale independently
-- **Connection Pool**: HikariCP with tuned min/max pool size
-- **Pagination**: All list endpoints paginated (default 20, max 100)
-- **Horizontal Scaling**: Stateless Spring Boot + Redis session → scale behind ALB
-- **Database**: Read replicas for analytics/history queries; write to primary
-- **Rate Limiting**: Nginx + Redis-backed token bucket on payment endpoints
+## Roadmap / Planned Features
 
----
+These items are not implemented in the current codebase:
 
-## 🤖 AI Features (Bonus)
+- Refresh token endpoint and refresh token persistence.
+- Redux Toolkit migration; the current frontend uses Zustand.
+- Legacy `/payments/{bookingId}/create-session` alias; the implemented endpoint is `/checkout`.
+- AWS infrastructure folder and deployment scripts.
+- Slot recommendation service.
+- Availability prediction.
+- AI/time-series demand forecasting.
+- Redis-backed rate limiting.
+- PgAdmin and Kafka UI services in Docker Compose.
 
-- **Demand-based Pricing**: Pricing service queries booking density for past 30 days; applies surge multiplier when >80% occupancy
-- **Slot Recommendation**: ML-lite scoring (floor proximity, EV charging) in `SlotRecommendationService`
-- **Availability Prediction**: Simple time-series regression on historical data to predict occupancy for next 4 hours
+## License
 
----
-
-## 📄 License
-
-MIT © 2024 — Built for learning, production-hardened.
+MIT

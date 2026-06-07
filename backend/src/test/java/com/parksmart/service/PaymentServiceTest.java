@@ -37,6 +37,7 @@ class PaymentServiceTest {
     @InjectMocks PaymentService paymentService;
 
     private UUID bookingId;
+    private UUID ownerId;
     private Booking booking;
     private Bill bill;
     private Payment existingPayment;
@@ -50,6 +51,7 @@ class PaymentServiceTest {
         ReflectionTestUtils.setField(paymentService, "cancelUrl",       "http://localhost:3000/payment/cancel");
 
         bookingId = UUID.randomUUID();
+        ownerId = UUID.randomUUID();
         UUID billId = UUID.randomUUID();
 
         ParkingFloor floor = ParkingFloor.builder()
@@ -64,7 +66,7 @@ class PaymentServiceTest {
 
         booking = Booking.builder()
             .id(bookingId)
-            .user(User.builder().id(UUID.randomUUID()).email("user@test.com").build())
+            .user(User.builder().id(ownerId).email("user@test.com").build())
             .vehicle(Vehicle.builder().id(UUID.randomUUID()).licensePlate("TST1").build())
             .slot(slot)
             .status(BookingStatus.PENDING_PAYMENT)
@@ -132,6 +134,32 @@ class PaymentServiceTest {
             .hasMessageContaining("awaiting payment");
     }
 
+    @Test
+    void createCheckoutSession_forDifferentUser_throwsAccessDenied() {
+        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(booking));
+
+        assertThatThrownBy(() ->
+            paymentService.createCheckoutSession(bookingId, UUID.randomUUID(), false)
+        ).isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+
+        verify(paymentRepository, never()).findByBillId(any());
+    }
+
+    @Test
+    void createCheckoutSession_withPlaceholderStripeKey_createsMockCheckoutLink() {
+        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(booking));
+        when(paymentRepository.findByBillId(bill.getId())).thenReturn(Optional.empty());
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        String link = paymentService.createCheckoutSession(bookingId, ownerId, false);
+
+        assertThat(link).startsWith("http://localhost:3000/payment/success?session_id=cs_mock_");
+        verify(paymentRepository).save(argThat(payment ->
+            payment.getStatus() == PaymentStatus.PENDING
+                && payment.getStripeSessionId().startsWith("cs_mock_")
+        ));
+    }
+
     // ── getPaymentStatus ──────────────────────────────────────────────────────
 
     @Test
@@ -152,5 +180,15 @@ class PaymentServiceTest {
 
         assertThatThrownBy(() -> paymentService.getPaymentStatus(bookingId))
             .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void getPaymentStatus_forDifferentUser_throwsAccessDenied() {
+        when(paymentRepository.findByBillBookingId(bookingId))
+            .thenReturn(Optional.of(existingPayment));
+
+        assertThatThrownBy(() ->
+            paymentService.getPaymentStatus(bookingId, UUID.randomUUID(), false)
+        ).isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
     }
 }

@@ -7,6 +7,7 @@ export const login    = (data) => api.post('/auth/login', data)
 // ── Parking Lots ──────────────────────────────────────────────────────────────
 export const getLots         = ()        => api.get('/parking/lots')
 export const getLotAvailability = (lotId) => api.get(`/parking/lots/${lotId}/availability`)
+export const getLotSlotMap   = (lotId)  => api.get(`/parking/lots/${lotId}/slot-map`)
 
 // ── Bookings ──────────────────────────────────────────────────────────────────
 export const parkVehicle     = (data)      => api.post('/bookings/park', data)

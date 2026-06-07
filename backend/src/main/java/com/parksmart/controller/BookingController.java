@@ -66,7 +66,11 @@ public class BookingController {
         @AuthenticationPrincipal User user,
         @PathVariable UUID bookingId
     ) {
-        BookingResponse response = bookingService.getBooking(bookingId);
+        BookingResponse response = bookingService.getBooking(
+            bookingId,
+            user.getId(),
+            user.getRole() == User.Role.ADMIN
+        );
         return ResponseEntity.ok(ApiResponse.success("Booking retrieved", response));
     }
 }

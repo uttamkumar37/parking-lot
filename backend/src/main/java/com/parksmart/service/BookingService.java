@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +30,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.UUID;
 
 @Service
@@ -85,11 +87,17 @@ public class BookingService {
             throw new BadRequestException("Vehicle " + req.getLicensePlate() + " is already parked");
         }
 
-        // 4. Slot allocation — Chain of Responsibility with fallback
-        ParkingSlot allocatedSlot = allocateSlot(req.getLotId(), req.getVehicleType());
+        // 4. Slot allocation — selected slot or Chain of Responsibility fallback
+        ParkingSlot allocatedSlot = req.getSlotId() != null
+            ? getRequestedSlot(req.getLotId(), req.getSlotId(), req.getVehicleType())
+            : allocateSlot(req.getLotId(), req.getVehicleType());
 
         // 5. Mark slot OCCUPIED (atomic update)
-        int updated = slotRepository.updateStatus(allocatedSlot.getId(), SlotStatus.OCCUPIED);
+        int updated = slotRepository.updateStatusIfCurrent(
+            allocatedSlot.getId(),
+            SlotStatus.AVAILABLE,
+            SlotStatus.OCCUPIED
+        );
         if (updated == 0) {
             throw new SlotNotAvailableException("Slot just became unavailable, please retry");
         }
@@ -181,6 +189,14 @@ public class BookingService {
         return toResponse(booking, booking.getBill());
     }
 
+    @Transactional(readOnly = true)
+    public BookingResponse getBooking(UUID bookingId, UUID requesterId, boolean isAdmin) {
+        Booking booking = bookingRepository.findById(bookingId)
+            .orElseThrow(() -> new NotFoundException("Booking not found: " + bookingId));
+        verifyBookingAccess(booking, requesterId, isAdmin);
+        return toResponse(booking, booking.getBill());
+    }
+
     // ===================== Private Helpers =====================
 
     /**
@@ -195,6 +211,37 @@ public class BookingService {
         throw new SlotNotAvailableException(
             "No available slots for vehicle type " + vehicleType + " in this lot"
         );
+    }
+
+    private ParkingSlot getRequestedSlot(UUID lotId, UUID slotId, Vehicle.VehicleType vehicleType) {
+        ParkingSlot slot = slotRepository.findById(slotId)
+            .orElseThrow(() -> new NotFoundException("Parking slot not found: " + slotId));
+
+        UUID slotLotId = slot.getFloor().getParkingLot().getId();
+        if (!slotLotId.equals(lotId)) {
+            throw new BadRequestException("Selected slot does not belong to this parking lot");
+        }
+
+        if (slot.getStatus() != SlotStatus.AVAILABLE) {
+            throw new SlotNotAvailableException("Selected slot is not available");
+        }
+
+        boolean compatible = Arrays.asList(vehicleSlotFactory.getFallbackSlotTypes(vehicleType))
+            .contains(slot.getSlotType());
+        if (!compatible) {
+            throw new BadRequestException(
+                "Selected slot type " + slot.getSlotType() + " is not compatible with vehicle type " + vehicleType
+            );
+        }
+
+        return slot;
+    }
+
+    private void verifyBookingAccess(Booking booking, UUID requesterId, boolean isAdmin) {
+        if (isAdmin) return;
+        if (booking.getUser() == null || !booking.getUser().getId().equals(requesterId)) {
+            throw new AccessDeniedException("Booking does not belong to this user");
+        }
     }
 
     private BookingResponse toResponse(Booking booking, Bill bill) {

@@ -2,6 +2,8 @@ package com.parksmart.event;
 
 import com.parksmart.entity.Booking;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -12,6 +14,8 @@ import java.util.UUID;
  * Consumed by Kafka listeners for notifications, analytics, cache invalidation.
  */
 @Getter
+@Setter
+@NoArgsConstructor
 public class BookingEvent {
 
     public enum Type {
@@ -22,29 +26,29 @@ public class BookingEvent {
         PAYMENT_FAILED
     }
 
-    private final UUID bookingId;
-    private final UUID userId;
-    private final UUID slotId;
-    private final UUID lotId;
-    private final Type eventType;
-    private final LocalDateTime occurredAt;
+    private UUID bookingId;
+    private UUID userId;
+    private UUID slotId;
+    private UUID lotId;
+    private Type eventType;
+    private LocalDateTime occurredAt;
 
     // User details
-    private final String userEmail;
-    private final String userPhone;
-    private final String userName;
+    private String userEmail;
+    private String userPhone;
+    private String userName;
 
     // Vehicle/Booking details
-    private final String licensePlate;
-    private final String slotNumber;
-    private final String floorName;
-    private final String lotName;
-    private final LocalDateTime entryTime;
-    private final Long durationMinutes;
+    private String licensePlate;
+    private String slotNumber;
+    private String floorName;
+    private String lotName;
+    private LocalDateTime entryTime;
+    private Long durationMinutes;
 
     // Payment details
-    private final String paymentLink;
-    private final BigDecimal totalAmount;
+    private String paymentLink;
+    private BigDecimal totalAmount;
 
     private BookingEvent(Builder builder) {
         this.bookingId       = builder.bookingId;
