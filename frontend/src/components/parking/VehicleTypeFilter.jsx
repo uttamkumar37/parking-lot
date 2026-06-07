@@ -1,6 +1,6 @@
 import { BoltIcon } from '@heroicons/react/24/outline'
 
-export const SLOT_TYPE_FILTERS = [
+const SLOT_TYPE_FILTERS = [
   { value: 'ALL', label: 'All' },
   { value: 'SMALL', label: 'Small' },
   { value: 'MEDIUM', label: 'Medium' },

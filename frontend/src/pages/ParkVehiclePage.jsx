@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
@@ -65,16 +65,7 @@ export default function ParkVehiclePage() {
     [selectedSlot]
   )
 
-  useEffect(() => {
-    loadLots()
-  }, [])
-
-  useEffect(() => {
-    if (!selectedLotId) return
-    loadSlotMap(selectedLotId)
-  }, [selectedLotId])
-
-  async function loadLots() {
+  const loadLots = useCallback(async () => {
     setLotsLoading(true)
     setLotsError('')
     try {
@@ -82,8 +73,7 @@ export default function ParkVehiclePage() {
       const activeLots = data.data ?? []
       setLots(activeLots)
 
-      const initialLotId = selectedLotId || activeLots[0]?.id || ''
-      setSelectedLotId(initialLotId)
+      setSelectedLotId((currentLotId) => currentLotId || activeLots[0]?.id || '')
 
       const availabilityPairs = await Promise.all(
         activeLots.map(async (lot) => {
@@ -101,9 +91,9 @@ export default function ParkVehiclePage() {
     } finally {
       setLotsLoading(false)
     }
-  }
+  }, [])
 
-  async function loadSlotMap(lotId) {
+  const loadSlotMap = useCallback(async (lotId) => {
     setSlotMapLoading(true)
     setSlotMapError('')
     setSlotMap(null)
@@ -118,7 +108,16 @@ export default function ParkVehiclePage() {
     } finally {
       setSlotMapLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    loadLots()
+  }, [loadLots])
+
+  useEffect(() => {
+    if (!selectedLotId) return
+    loadSlotMap(selectedLotId)
+  }, [loadSlotMap, selectedLotId])
 
   const handleLotSelect = (lotId) => {
     setSelectedLotId(lotId)
